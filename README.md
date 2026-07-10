@@ -99,7 +99,6 @@ curl -s http://127.0.0.1:18923/status
 | 交互 | `scroll` | 滚动页面 |
 | 交互 | `get_text` | 获取页面文本 |
 | 交互 | `get_url` / `get_title` | 获取URL/标题 |
-| 提取 | `extract_jobs` | 提取BOSS直聘职位 |
 | 提取 | `eval_js` | 执行JavaScript |
 | 健康 | `ping` | 测试连接 |
 

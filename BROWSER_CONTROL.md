@@ -22,7 +22,6 @@ $CLI close-tab <tab_id>            # 关闭标签页
 $CLI scroll down 5                 # 向下滚动
 $CLI get-text                      # 获取页面文本
 $CLI get-url                       # 获取当前URL
-$CLI extract-jobs                  # 提取BOSS直聘职位
 $CLI refresh                       # 刷新页面
 $CLI go-back                       # 后退
 $CLI go-forward                    # 前进

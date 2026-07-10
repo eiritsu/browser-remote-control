@@ -243,7 +243,6 @@ project/
 ./cli.sh scroll down 5                 # 滚动
 ./cli.sh get-text                      # 页面文本
 ./cli.sh get-url                       # 当前URL
-./cli.sh extract-jobs                  # 提取BOSS直聘职位
 ./cli.sh navigate "https://..." firefox # 指定Firefox
 ```
 
@@ -376,7 +375,7 @@ Standard commands for browser remote control:
 **Tab Management**: `list_tabs`, `switch_tab`, `open_tab`, `close_tab`
 **Navigation**: `navigate`, `go_back`, `go_forward`, `refresh`
 **Page Interaction**: `scroll`, `get_text`, `get_url`, `get_title`, `check_login`
-**Content Extraction**: `extract_jobs`, `eval_js`, `page_info`
+**Content Extraction**: `eval_js`, `page_info`
 **Health**: `ping`
 
 Each command returns a JSON object. Errors include an `error` field.

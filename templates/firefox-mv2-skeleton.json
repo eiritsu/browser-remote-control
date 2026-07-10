@@ -1,0 +1,85 @@
+# Firefox MV2 Extension Template
+
+Minimal Firefox Manifest V2 extension for browser remote control.
+
+## manifest.json
+
+```json
+{
+  "manifest_version": 2,
+  "name": "Browser Remote Control",
+  "version": "2.0",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "remote-control@myext",
+      "strict_min_version": "57.0"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "alarms",
+    "storage",
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+```
+
+## background.js skeleton
+
+```javascript
+const BRIDGE = 'http://127.0.0.1:18923';
+const BROWSER = 'firefox';
+
+async function poll() {
+  try {
+    const resp = await fetch(`${BRIDGE}/poll/${BROWSER}`);
+    const cmd = await resp.json();
+    if (cmd.action && cmd.action !== 'noop') {
+      const result = await execute(cmd);
+      await fetch(`${BRIDGE}/result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ browser: BROWSER, ...result })
+      });
+    }
+  } catch (e) {}
+  setTimeout(poll, 600);
+}
+
+browser.alarms.create('poll', { periodInMinutes: 0.02 });
+browser.alarms.onAlarm.addListener(() => poll());
+poll();
+
+async function execInPage(func, tab, args = []) {
+  if (!tab) {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
+    tab = tabs[0];
+  }
+  // Firefox MV2: serialize function to string for executeScript
+  const funcStr = func.toString();
+  const results = await browser.tabs.executeScript(tab.id, {
+    code: `(${funcStr}).apply(null, ${JSON.stringify(args)})`,
+    runAt: 'document_idle'
+  });
+  return results?.[0];
+}
+
+async function execute(cmd) {
+  const { action } = cmd;
+  if (action === 'ping') return { ok: true };
+  // ... add your commands
+  return { error: `unknown action: ${action}` };
+}
+```

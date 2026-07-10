@@ -1,0 +1,80 @@
+# Chrome MV3 Extension Template
+
+Minimal Chrome Manifest V3 extension for browser remote control.
+
+## manifest.json
+
+```json
+{
+  "manifest_version": 3,
+  "name": "Browser Remote Control",
+  "version": "2.0",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+```
+
+## background.js skeleton
+
+```javascript
+const BRIDGE = 'http://127.0.0.1:18923';
+const BROWSER = 'chrome';
+
+async function poll() {
+  try {
+    const resp = await fetch(`${BRIDGE}/poll/${BROWSER}`);
+    const cmd = await resp.json();
+    if (cmd.action && cmd.action !== 'noop') {
+      const result = await execute(cmd);
+      await fetch(`${BRIDGE}/result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ browser: BROWSER, ...result })
+      });
+    }
+  } catch (e) {}
+  setTimeout(poll, 600);
+}
+
+// Keep-alive via alarms
+chrome.alarms.create('poll', { periodInMinutes: 0.02 });
+chrome.alarms.onAlarm.addListener(() => poll());
+poll();
+
+async function execInPage(func, tab, args = []) {
+  if (!tab) {
+    const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
+    tab = t;
+  }
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id, allFrames: false },
+    world: 'MAIN',
+    func,
+    args
+  });
+  return results?.[0]?.result;
+}
+
+async function execute(cmd) {
+  const { action } = cmd;
+  if (action === 'ping') return { ok: true };
+  // ... add your commands
+  return { error: `unknown action: ${action}` };
+}
+```

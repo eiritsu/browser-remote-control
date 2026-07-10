@@ -14,6 +14,7 @@
     "tabs",
     "alarms",
     "storage",
+    "debugger",
     "<all_urls>"
   ],
   "background": {

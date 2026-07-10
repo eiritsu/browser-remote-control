@@ -327,6 +327,42 @@ chrome.scripting.executeScript({
 });
 ```
 
+### 8. `eval()` blocked by CSP even with `world: 'MAIN'` — CDP fallback pattern
+**Symptom**: `execInPage` with `eval(code)` or `new Function(code)` inside the function body throws CSP violation on strict sites (GitHub, BOSS直聘, banking sites).
+**Root cause**: `world: 'MAIN'` bypasses extension's isolated world CSP, but the page's own CSP still blocks `eval()`. The injected function runs fine, but if it calls `eval()` internally, that call is blocked.
+**Fix**: For `eval_js` action, use CDP `Runtime.evaluate` via `chrome.debugger` API. CDP operates at DevTools protocol level, completely bypassing all CSP. But `chrome.debugger` in MV3 service workers is unreliable (events may not fire, promises hang). Always use `Promise.race` with 3s timeout and fall back to `execInPage`:
+```javascript
+// eval_js action — CDP with fallback
+try {
+  await chrome.debugger.attach({ tabId }, '1.3');
+  const cdpResult = await Promise.race([
+    chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+      expression: userCode, returnByValue: true, awaitPromise: true
+    }).then(r => r?.result?.value),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('cdp_timeout')), 3000))
+  ]);
+  await chrome.debugger.detach({ tabId });
+  return { result: cdpResult, method: 'cdp' };
+} catch {
+  const fallback = await execInPage(func, tab, args);
+  return { result: fallback, method: 'execInPage' };
+}
+```
+**For non-eval code**: Write dedicated handler functions per action instead of using eval.
+
+### 5c. `new Function()` blocked by CSP even in MAIN world
+**Symptom**: Passing `new Function(code)` or `eval()` as the `func` parameter to `executeScript` with `world: 'MAIN'` still gets blocked by CSP on sites like GitHub, BOSS直聘.
+**Cause**: CSP `script-src` directive blocks `new Function()` regardless of which world it runs in. The MAIN world bypass only works for **direct function references**, not dynamically constructed functions.
+**Fix**: Do NOT use `eval`/`new Function`. Instead, write dedicated handler functions for each action:
+```javascript
+// ❌ FAILS on CSP sites
+const result = await executeScript(() => new Function(code)());
+
+// ✅ WORKS — direct function reference
+const result = await executeScript(() => document.title);
+const result = await executeScript(() => document.body?.innerText || '');
+```
+
 ## Command Reference
 
 Standard commands for browser remote control:

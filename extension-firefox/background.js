@@ -280,15 +280,38 @@ async function execute(cmd) {
     try {
       if (!cmd.code) return { error: 'missing code' };
       const tab = await getActiveTab();
-      const result = await execInPage((code) => {
+      if (!tab) return { error: 'no active tab' };
+
+      // Try CDP first (bypasses CSP)
+      try {
+        try { await browser.debugger.detach({ tabId: tab.id }); } catch(e) {}
+        await browser.debugger.attach({ tabId: tab.id }, '1.3');
+
+        const cdpResult = await Promise.race([
+          new Promise((resolve, reject) => {
+            browser.debugger.sendCommand({ tabId: tab.id }, 'Runtime.evaluate', {
+              expression: cmd.code, returnByValue: true, awaitPromise: true
+            }).then(r => resolve(r?.result?.value ?? r?.result?.description ?? ''))
+              .catch(reject);
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('cdp_timeout')), 3000))
+        ]);
+
+        try { await browser.debugger.detach({ tabId: tab.id }); } catch(e) {}
+        return { result: cdpResult, method: 'cdp' };
+
+      } catch (cdpErr) {
+        try { await browser.debugger.detach({ tabId: tab.id }); } catch(e) {}
         try {
-          return { value: eval(code), error: null };
-        } catch (e) {
-          return { value: null, error: e.message };
+          const fallbackResult = await execInPage((code) => {
+            try { return String(Function('return ' + code)()); }
+            catch(e) { return 'ERR:' + e.message + ' (use cdp for eval)'; }
+          }, tab, [cmd.code]);
+          return { result: fallbackResult, method: 'execInPage' };
+        } catch (e2) {
+          return { error: `CDP failed: ${cdpErr.message}, fallback failed: ${e2.message}` };
         }
-      }, tab, [cmd.code]);
-      if (result?.error) return { error: result.error };
-      return { result: result?.value };
+      }
     } catch (e) {
       return { error: e.message };
     }

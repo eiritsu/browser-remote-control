@@ -49,6 +49,36 @@ poll();
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
+/** Execute JS via CDP Runtime.evaluate — bypasses all CSP */
+async function cdpEval(tabId, expression) {
+  // Detach first to avoid stale connections
+  try { await chrome.debugger.detach({ tabId }); } catch(e) {}
+  await chrome.debugger.attach({ tabId }, '1.3');
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      try { chrome.debugger.detach({ tabId }); } catch(e) {}
+      reject(new Error('CDP timeout'));
+    }, 10000);
+
+    const listener = (source, method, params) => {
+      if (source.tabId === tabId && method === 'Runtime.evaluate') {
+        clearTimeout(timeout);
+        chrome.debugger.onDetach.removeListener(listener);
+        const val = params?.result?.value ?? params?.result?.description ?? '';
+        resolve(val);
+      }
+    };
+    chrome.debugger.onDetach.addListener(listener);
+
+    chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+      expression,
+      returnByValue: true,
+      awaitPromise: true
+    }).catch(e => { clearTimeout(timeout); reject(e); });
+  });
+}
+
 /** Get the active tab in the current window */
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -278,15 +308,39 @@ async function execute(cmd) {
     try {
       if (!cmd.code) return { error: 'missing code' };
       const tab = await getActiveTab();
-      const result = await execInPage((code) => {
+      if (!tab) return { error: 'no active tab' };
+
+      // Try CDP first (bypasses CSP)
+      try {
+        try { await chrome.debugger.detach({ tabId: tab.id }); } catch(e) {}
+        await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+
+        const cdpResult = await Promise.race([
+          new Promise((resolve, reject) => {
+            chrome.debugger.sendCommand({ tabId: tab.id }, 'Runtime.evaluate', {
+              expression: cmd.code, returnByValue: true, awaitPromise: true
+            }).then(r => resolve(r?.result?.value ?? r?.result?.description ?? ''))
+              .catch(reject);
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('cdp_timeout')), 3000))
+        ]);
+
+        try { await chrome.debugger.detach({ tabId: tab.id }); } catch(e) {}
+        return { result: cdpResult, method: 'cdp' };
+
+      } catch (cdpErr) {
+        // CDP failed — fall back to execInPage (may not work if code uses eval)
+        try { await chrome.debugger.detach({ tabId: tab.id }); } catch(e) {}
         try {
-          return { value: eval(code), error: null };
-        } catch (e) {
-          return { value: null, error: e.message };
+          const fallbackResult = await execInPage((code) => {
+            try { return String(Function('return ' + code)()); }
+            catch(e) { return 'ERR:' + e.message + ' (use cdp for eval)'; }
+          }, tab, [cmd.code]);
+          return { result: fallbackResult, method: 'execInPage' };
+        } catch (e2) {
+          return { error: `CDP failed: ${cdpErr.message}, fallback failed: ${e2.message}` };
         }
-      }, tab, [cmd.code]);
-      if (result?.error) return { error: result.error };
-      return { result: result?.value };
+      }
     } catch (e) {
       return { error: e.message };
     }

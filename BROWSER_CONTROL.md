@@ -55,4 +55,4 @@ curl -s http://127.0.0.1:18923/status
 
 1. Bridge服务运行中（`node server.js`）
 2. Chrome已安装extension-chrome扩展
-3. Firefox已加载extension-firefox附加组件
+2. Firefox用Developer Edition加载extension-firefox.xpi（普通版需临时加载）

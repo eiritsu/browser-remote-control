@@ -47,7 +47,7 @@ through extensions + an HTTP bridge server.
 {
   "manifest_version": 3,
   "name": "Remote Control",
-  "permissions": ["activeTab", "scripting", "tabs", "alarms", "storage"],
+  "permissions": ["activeTab", "scripting", "tabs", "alarms", "storage", "debugger"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"] }]
@@ -116,7 +116,7 @@ poll();
   "browser_specific_settings": {
     "gecko": { "id": "remote-control@myext", "strict_min_version": "57.0" }
   },
-  "permissions": ["activeTab", "tabs", "alarms", "storage", "<all_urls>"],
+  "permissions": ["activeTab", "tabs", "alarms", "storage", "debugger", "<all_urls>"],
   "background": { "scripts": ["background.js"], "persistent": false }
 }
 ```
@@ -329,9 +329,9 @@ chrome.scripting.executeScript({
 ### 8. `eval()` blocked by CSP even with `world: 'MAIN'` — CDP fallback pattern
 **Symptom**: `execInPage` with `eval(code)` or `new Function(code)` inside the function body throws CSP violation on strict sites (GitHub, BOSS直聘, banking sites).
 **Root cause**: `world: 'MAIN'` bypasses extension's isolated world CSP, but the page's own CSP still blocks `eval()`. The injected function runs fine, but if it calls `eval()` internally, that call is blocked.
-**Fix**: For `eval_js` action, use CDP `Runtime.evaluate` via `chrome.debugger` API. CDP operates at DevTools protocol level, completely bypassing all CSP. But `chrome.debugger` in MV3 service workers is unreliable (events may not fire, promises hang). Always use `Promise.race` with 3s timeout and fall back to `execInPage`:
+**Fix**: For `eval_js` action, use CDP `Runtime.evaluate` via `chrome.debugger` API. CDP operates at DevTools protocol level, completely bypassing all CSP. But `chrome.debugger` in MV3 service workers is unreliable — the `sendCommand` promise often never resolves because the service worker context doesn't properly handle CDP event callbacks. Always use `Promise.race` with 3s timeout and fall back to `execInPage`:
 ```javascript
-// eval_js action — CDP with fallback
+// eval_js action — CDP with 3s timeout + execInPage fallback
 try {
   await chrome.debugger.attach({ tabId }, '1.3');
   const cdpResult = await Promise.race([
@@ -343,11 +343,12 @@ try {
   await chrome.debugger.detach({ tabId });
   return { result: cdpResult, method: 'cdp' };
 } catch {
+  // CDP failed — fallback to execInPage (may not work if code uses eval)
   const fallback = await execInPage(func, tab, args);
   return { result: fallback, method: 'execInPage' };
 }
 ```
-**For non-eval code**: Write dedicated handler functions per action instead of using eval.
+**For non-eval code**: Write dedicated handler functions per action instead of using eval. This is more reliable than CDP.
 
 ### 5c. `new Function()` blocked by CSP even in MAIN world
 **Symptom**: Passing `new Function(code)` or `eval()` as the `func` parameter to `executeScript` with `world: 'MAIN'` still gets blocked by CSP on sites like GitHub, BOSS直聘.

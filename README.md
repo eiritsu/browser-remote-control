@@ -33,9 +33,18 @@ cd .. && ./cli.sh ping
 
 ### 安装Firefox扩展
 
-**永久安装**：把 `extension-firefox.xpi` 拖入Firefox窗口
+**推荐：Firefox Developer Edition**（允许未签名扩展）
 
-**开发模式**：`about:debugging` → 临时加载 → 选择 `extension-firefox/manifest.json`
+1. 下载安装 [Firefox Developer Edition](https://www.mozilla.org/firefox/developer/)
+2. 把 `extension-firefox.xpi` 拖入Firefox窗口即可永久安装
+3. 普通版Firefox要求扩展必须签名，无法直接安装未签名扩展
+
+**临时加载**（普通版Firefox）：
+
+1. 地址栏输入 `about:debugging#/runtime/this-firefox`
+2. 点"临时加载附加组件..."
+3. 选择 `extension-firefox/manifest.json`
+4. 重启Firefox后需重新加载
 
 ## CLI用法
 

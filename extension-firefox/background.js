@@ -8,7 +8,7 @@
 //   Tab Management: list_tabs, switch_tab, open_tab, close_tab
 //   Navigation:     navigate, go_back, go_forward, refresh
 //   Page Interaction: scroll, get_text, get_url, get_title, check_login
-//   Content Extraction: extract_jobs, eval_js, page_info
+//   Content Extraction: eval_js, page_info
 //   Health: ping
 
 const BRIDGE = 'http://127.0.0.1:18923';
@@ -227,55 +227,6 @@ async function execute(cmd) {
   }
 
   // ── Content Extraction ───────────────────────────────────────────
-  if (action === 'extract_jobs') {
-    try {
-      const tab = await getActiveTab();
-      const jobs = await execInPage(() => {
-        const results = [];
-        const cards = document.querySelectorAll(
-          '.job-card-wrapper, [class*="job-card-box"], ' +
-          '[ka*="search_list_job"], .job-list-box .job-card-wrapper, ' +
-          '[class*="search-job-result"] li'
-        );
-        cards.forEach(card => {
-          const title = card.querySelector(
-            '.job-name, [class*="job-name"], a[title]'
-          )?.textContent?.trim() ||
-            card.querySelector('a[title]')?.getAttribute('title') || '';
-          const company = card.querySelector(
-            '.company-name, [class*="company-name"], .company-text a'
-          )?.textContent?.trim() || '';
-          const salary = card.querySelector(
-            '.salary, .job-limit .red, [class*="salary"], span.salary'
-          )?.textContent?.trim() || '';
-          const area = card.querySelector(
-            '.job-area, [class*="job-area"], .job-area-wrapper span'
-          )?.textContent?.trim() || '';
-          const tags = [...(card.querySelectorAll(
-            '.job-info .tag-list li, .tag-list span, [class*="tags"] span'
-          ) || [])].map(t => t.textContent.trim()).filter(Boolean);
-          const link = card.querySelector('a')?.href || '';
-          const experience = card.querySelector(
-            '.job-info .tag-list li:nth-child(1), [class*="experience"]'
-          )?.textContent?.trim() || '';
-          const education = card.querySelector(
-            '.job-info .tag-list li:nth-child(2), [class*="education"]'
-          )?.textContent?.trim() || '';
-          if (title || company) {
-            results.push({
-              title, company, salary, area, tags,
-              experience, education, link
-            });
-          }
-        });
-        return results;
-      }, tab);
-      return { jobs: jobs || [], count: (jobs || []).length };
-    } catch (e) {
-      return { jobs: [], error: e.message };
-    }
-  }
-
   if (action === 'eval_js') {
     try {
       if (!cmd.code) return { error: 'missing code' };

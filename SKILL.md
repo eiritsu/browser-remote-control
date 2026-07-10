@@ -363,6 +363,12 @@ const result = await executeScript(() => document.title);
 const result = await executeScript(() => document.body?.innerText || '');
 ```
 
+## References
+
+- `references/react-form-automation.md` — React/SPA表单自动化技巧（CDP eval_js + nativeInputValueSetter）
+- `references/bosszhipin-selectors.md` — BOSS直聘页面元素选择器
+- `references/cua-driver-cli-fallback.md` — cua-driver CLI备用方案
+
 ## Command Reference
 
 Standard commands for browser remote control:

@@ -18,23 +18,26 @@ metadata:
 
 # Browser Remote Control — Agent Execution Guide
 
-## ⚠️ THIS vs Built-in browser_* Tools (read FIRST)
+## ⚠️ Web Tool Routing (read FIRST)
 
-Hermes has TWO ways to interact with web pages. Choose the RIGHT one:
+Hermes has 4 ways to access web content. Choose the simplest one that works:
 
-| Scenario | Use |
-|----------|-----|
-| "帮我在浏览器打开XX" / "在浏览器里操作" | **THIS skill** (cli.sh) — user's real Chrome |
-| "帮我看看浏览器里有什么" / "浏览器当前页面" | **THIS skill** (cli.sh get-text) |
-| User needs their logged-in session / cookies | **THIS skill** — auth state lives in their browser |
-| "搜一下XX" / 查公开网页内容 | `web_search` + `web_extract` — no browser needed |
-| Inspect a page's DOM structure | Built-in `browser_*` tools — isolated session |
+| Need | Tool | Example |
+|------|------|---------|
+| Find information | `web_search` | "搜索XX的最新价格" |
+| Read a public page's content | `web_extract` | "看看这个链接的内容" |
+| Click/fill/interact with a page (no login needed) | Built-in `browser_*` | "帮我在这个页面点XX按钮" |
+| Control user's real browser (login, cookies, visible tabs) | `cli.sh` | "在浏览器里打开XX", "帮我看看Chrome" |
 
-**Rule of thumb**: If the user says "浏览器" or needs their real browser state → use cli.sh.
-If you just need web content → use web_extract/web_search (faster, no bridge needed).
+**Decision flow**:
+1. Just need info? → `web_search`
+2. Need content from a specific URL? → `web_extract`
+3. Need to click/fill forms but no login state needed? → `browser_*` (headless)
+4. Need user's real browser / logged-in session / user must see the page? → `cli.sh`
 
-**Never use built-in browser_navigate to "open a page for the user"** — it opens in a headless
-session the user can't see. Use `./cli.sh navigate` to open it in their actual Chrome.
+**Key rule**: If user says "浏览器" or needs their actual browser → `cli.sh`.
+If just fetching content → `web_extract` (uses Firecrawl under the hood, handles JS-rendered pages).
+Never use `browser_navigate` to "open a page for the user" — it's a headless session they can't see.
 
 ## Decision Tree (read this FIRST)
 

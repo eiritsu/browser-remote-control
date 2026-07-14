@@ -11,6 +11,20 @@
 - 📄 页面内容提取（文本/HTML/JS执行）
 - 🖥️ CLI工具，一行命令操控浏览器
 
+## 什么时候用这个工具？
+
+AI Agent 访问网页内容有 4 种方式，本项目是其中之一：
+
+| 需求 | 工具 | 说明 |
+|------|------|------|
+| 搜索信息 | `web_search` | 关键词搜索，返回结果列表 |
+| 读取公开网页内容 | `web_extract` | 给 URL，返回页面文本（底层可用 Firecrawl 等引擎） |
+| 点击/填表（无需登录态） | Headless 浏览器 | Playwright/Puppeteer 或 Agent 内置 browser 工具 |
+| **控制用户真实浏览器** | **本项目 (cli.sh)** | 用户的 Chrome/Firefox，保留登录态和 Cookie |
+
+**判断标准**：用户说"在浏览器里打开"、需要已登录的会话、需要用户看到页面 → 用本项目。
+只是查内容 → `web_extract` 更快更简单。
+
 ## 快速开始
 
 ```bash
@@ -113,10 +127,11 @@ curl -s http://127.0.0.1:18923/status
 
 ## 适用场景
 
-- AI Agent操控浏览器搜索/采集信息
-- 自动化测试
-- 远程浏览器管理
-- Hermes/Claude Code/Codex等agent的浏览器工具
+- AI Agent 需要操控用户已登录的浏览器（招聘网站、后台管理、社交媒体等）
+- 自动化测试需要在真实浏览器环境中执行
+- 远程管理多台机器上的浏览器
+- 需要绕过 CSP 限制执行 JS（CDP Runtime.evaluate）
+- 作为 Hermes / Claude Code / Codex 等 Agent 的浏览器操控后端
 
 ## 许可
 

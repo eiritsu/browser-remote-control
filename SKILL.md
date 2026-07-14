@@ -1,16 +1,13 @@
 ---
 name: browser-remote-control
 description: |
-  Build browser remote control systems — Chrome/Firefox extensions + HTTP bridge server + CLI wrapper.
-  Covers Chrome MV3 (service_worker, chrome.scripting.executeScript with world:'MAIN' for CSP bypass),
-  Firefox MV2 (background scripts, browser.* API, function serialization), HTTP polling bridge architecture
-  (per-browser endpoints, command queuing), and CLI wrappers with result polling.
-  Trigger on: "browser extension", "remote control browser", "Chrome extension", "Firefox addon",
-  "browser automation extension", "CSP bypass", "executeScript MAIN world", "bridge server for extension",
-  "control browser from CLI", "browser remote control system".
-  NOT for: driving the desktop GUI (use computer-use), headless browser automation (use browser tools),
-  Selenium/Playwright automation (different class).
-version: 1.1.0
+  Control the user's REAL Chrome/Firefox browser via extension + HTTP bridge + cli.sh.
+  USE THIS when user asks to open/navigate/interact with their actual browser, logged-in sessions,
+  or says "在浏览器里", "帮我看看浏览器", "打开Chrome".
+  DO NOT use for fetching URLs (use web_extract) or headless inspection (use browser_* tools).
+  Trigger on: "open Chrome", "control browser", "browser remote", "在浏览器里", "浏览器打开",
+  "帮我看看浏览器", "cli.sh", "CDP", "debugger protocol", "bridge server", "CSP bypass".
+version: 1.3.0
 platforms: [macos, windows, linux]
 metadata:
   hermes:
@@ -20,6 +17,26 @@ metadata:
 ---
 
 # Browser Remote Control — Agent Execution Guide
+
+## ⚠️ THIS vs Built-in browser_* Tools (read FIRST)
+
+Hermes has TWO ways to interact with web pages. Choose the RIGHT one:
+
+| Scenario | Use |
+|----------|-----|
+| "帮我在浏览器打开BOSS直聘" | **THIS skill** (cli.sh) — user's real Chrome |
+| "帮我看看浏览器里有什么" | **THIS skill** (cli.sh get-text) |
+| "帮我在Chrome里登录XX" | **THIS skill** (cli.sh navigate) |
+| User needs their logged-in session | **THIS skill** — cookies/auth are in their browser |
+| "搜一下XX的信息" | `web_search` + `web_extract` — no browser needed |
+| Fetch a public URL for content | `web_extract` — headless, no login state |
+| Inspect a page structure | Built-in `browser_*` tools — isolated session |
+
+**Rule of thumb**: If the user says "浏览器" or needs their real browser state → use cli.sh.
+If you just need web content → use web_extract/web_search (faster, no bridge needed).
+
+**Never use built-in browser_navigate to "open a page for the user"** — it opens in a headless
+session the user can't see. Use `./cli.sh navigate` to open it in their actual Chrome.
 
 ## Decision Tree (read this FIRST)
 
@@ -31,6 +48,39 @@ When user asks about browser remote control, follow this tree:
 4. **User asks a conceptual question** → Answer from relevant sections below, don't dump the whole skill.
 
 **Always verify before acting**: Don't assume bridge is running or extension is loaded. Check first.
+
+**ALWAYS use `cli.sh`**: Never build raw `curl` commands when `cli.sh` exists. The CLI handles payload construction, polling, and timeout. Use `./cli.sh <command>` from the skill directory. Only fall back to raw curl if `cli.sh` itself is broken.
+
+## Hermes Agent Usage Pattern (critical)
+
+When using this skill from Hermes, follow this exact sequence:
+
+### 1. Start bridge as a long-lived background process
+```bash
+# WRONG — foreground terminal gets killed, bridge dies mid-session
+terminal("cd bridge && node server.js")
+
+# CORRECT — background=true keeps it alive for the whole session
+terminal("cd /path/to/bridge && node server.js", background=true, notify_on_complete=false)
+```
+Bridge is a long-lived server (never exits on its own). Use `background=true` WITHOUT `notify_on_complete`. Poll with `process(action='poll')` if you need to check it's alive.
+
+### 2. Use cli.sh for ALL operations
+```bash
+# Run from the skill directory
+cd /Users/y/.hermes/skills/software-development/browser-remote-control
+./cli.sh list-tabs
+./cli.sh get-text
+./cli.sh navigate "https://example.com"
+```
+Do NOT mix bridge server output and CLI output in the same terminal. They must be separate sessions.
+
+### 3. Verify bridge before first command
+```bash
+curl -s http://127.0.0.1:18923/status
+# Expected: {"status":"ok","browsers":{"chrome":{...},"firefox":{...}}}
+```
+If bridge is down, restart it (step 1). If extension is not polling, the `GET /poll/chrome` lines won't appear in bridge logs.
 
 ## Quick Start (step by step)
 
@@ -120,22 +170,58 @@ When `eval_js` receives arbitrary user code, `execInPage` with `eval()` or `new 
 async function handleEvalJs(code, tab) {
   // Try CDP first (bypasses ALL CSP)
   try {
+    // Detach first to clean up any stale debugger connections
+    try { await chrome.debugger.detach({ tabId: tab.id }); } catch(e) {}
     await chrome.debugger.attach({ tabId: tab.id }, '1.3');
+
     const cdpResult = await Promise.race([
       chrome.debugger.sendCommand({ tabId: tab.id }, 'Runtime.evaluate', {
         expression: code, returnByValue: true, awaitPromise: true
-      }).then(r => r?.result?.value),
+      }).then(r => r?.result?.value ?? r?.result?.description ?? ''),
       new Promise((_, rej) => setTimeout(() => rej(new Error('cdp_timeout')), 3000))
     ]);
-    await chrome.debugger.detach({ tabId: tab.id });
+    try { await chrome.debugger.detach({ tabId: tab.id }); } catch(e) {}
     return { result: cdpResult, method: 'cdp' };
-  } catch {
+  } catch (cdpErr) {
     // CDP failed — fallback to execInPage (won't work if code uses eval)
-    const fallback = await execInPage((c) => { try { return eval(c); } catch(e) { return {error: e.message}; } }, tab, [code]);
-    return { result: fallback, method: 'execInPage' };
+    try { await chrome.debugger.detach({ tabId: tab.id }); } catch(e) {}
+    try {
+      const fallback = await execInPage((code) => {
+        try { return String(Function('return ' + code)()); }
+        catch(e) { return 'ERR:' + e.message + ' (use cdp for eval)'; }
+      }, tab, [code]);
+      return { result: fallback, method: 'execInPage' };
+    } catch (e2) {
+      return { error: `CDP failed: ${cdpErr.message}, fallback failed: ${e2.message}` };
+    }
   }
 }
 ```
+
+### CDP Pitfall: `sendCommand` returns a Promise, NOT an event
+
+The `cdpEval` helper MUST use `await sendCommand().then()` — NOT `chrome.debugger.onDetach` event listener. `Runtime.evaluate` is a CDP **command** that returns a result via the Promise, not an event that fires. The old pattern with `onDetach.addListener` hangs forever because the event never fires.
+
+**WRONG** (hangs):
+```javascript
+// Runtime.evaluate is a command, not an event — this never fires
+chrome.debugger.onDetach.addListener((source, method, params) => {
+  if (method === 'Runtime.evaluate') { resolve(params.result.value); }
+});
+chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', { ... });
+```
+
+**CORRECT**:
+```javascript
+const result = await chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+  expression, returnByValue: true, awaitPromise: true
+});
+return result?.result?.value ?? result?.result?.description ?? '';
+```
+
+### CDP Pitfall: multi-line code strings timeout
+
+When passing code via `cli.sh eval-js`, shell quoting may break multi-line strings. Keep expressions short and single-line for reliability. Complex multi-line eval-js calls frequently timeout — prefer `get-text` for page content extraction.
 
 **For non-eval code**: Always write dedicated handler functions per action. Never wrap user code in `eval()` when you can avoid it.
 
@@ -196,6 +282,31 @@ Caller (CLI/Agent)  ──POST /cmd──▶  Bridge (Node.js:18923)  ◀──G
 **Firefox executeScript error**: Functions must be serialized to strings. See §Firefox MV2 Key Differences.
 
 **`url.parse()` deprecation**: Use `new URL(req.url, base)` instead.
+
+**`cdpEval` hangs forever / times out**: The extension's `cdpEval` function MUST use `await sendCommand().then()` to get the result. Using `chrome.debugger.onDetach.addListener` to listen for `Runtime.evaluate` events hangs forever because `Runtime.evaluate` is a CDP command (returns via Promise), not an event. If the extension code uses the event-listener pattern, fix it to use direct Promise resolution. See the SKILL.md CDP Pitfall section for the correct pattern.
+
+## Pitfalls
+
+### Bridge server dying mid-session
+
+**Symptom**: `cli.sh` commands return `"error": "timeout waiting for response"` or `curl: (7) Failed to connect`. Bridge was working earlier but stopped.
+
+**Cause**: Bridge was started in a foreground `terminal()` call that got cleaned up by the session lifecycle. The `node server.js` process exits when its parent terminal session closes.
+
+**Fix**: Always start bridge as a long-lived background process:
+```bash
+# ✅ CORRECT — stays alive for entire session
+terminal("cd /path/to/bridge && node server.js", background=true, notify_on_complete=false)
+```
+Never use `notify_on_complete=true` for the bridge — it never exits on its own, so the notification would never fire. Use `process(action='poll')` to check if it's still running.
+
+### eval-js complex expressions timeout
+
+Short one-liners work reliably via CDP. Multi-line expressions with loops, `filter()`, `map()`, or `join()` frequently timeout (>15s) due to CDP overhead + shell quoting issues. Use `get-text` for bulk content extraction instead. See `references/github-cdom-limitations.md` for details.
+
+### GitHub React components resist CDOM manipulation
+
+GitHub's dropdowns, selects, and toggle buttons are React custom components, NOT native HTML elements. `document.querySelector('select')` returns 0 elements. Changing values via `select.value` or dispatching native events has no effect. These must be done manually by the user.
 
 ## References
 

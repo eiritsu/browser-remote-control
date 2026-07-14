@@ -24,13 +24,11 @@ Hermes has TWO ways to interact with web pages. Choose the RIGHT one:
 
 | Scenario | Use |
 |----------|-----|
-| "帮我在浏览器打开BOSS直聘" | **THIS skill** (cli.sh) — user's real Chrome |
-| "帮我看看浏览器里有什么" | **THIS skill** (cli.sh get-text) |
-| "帮我在Chrome里登录XX" | **THIS skill** (cli.sh navigate) |
-| User needs their logged-in session | **THIS skill** — cookies/auth are in their browser |
-| "搜一下XX的信息" | `web_search` + `web_extract` — no browser needed |
-| Fetch a public URL for content | `web_extract` — headless, no login state |
-| Inspect a page structure | Built-in `browser_*` tools — isolated session |
+| "帮我在浏览器打开XX" / "在浏览器里操作" | **THIS skill** (cli.sh) — user's real Chrome |
+| "帮我看看浏览器里有什么" / "浏览器当前页面" | **THIS skill** (cli.sh get-text) |
+| User needs their logged-in session / cookies | **THIS skill** — auth state lives in their browser |
+| "搜一下XX" / 查公开网页内容 | `web_search` + `web_extract` — no browser needed |
+| Inspect a page's DOM structure | Built-in `browser_*` tools — isolated session |
 
 **Rule of thumb**: If the user says "浏览器" or needs their real browser state → use cli.sh.
 If you just need web content → use web_extract/web_search (faster, no bridge needed).
